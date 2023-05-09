@@ -1,0 +1,53 @@
+preprocessing:
+  data_path: ./data
+  train_neg_small_file_name: train_neg.txt
+  train_pos_small_file_name: train_pos.txt
+  train_neg_full_file_name: train_neg_full.txt
+  train_pos_full_file_name: train_pos_full.txt
+  test_data: test_data.txt
+  use_full_train_data: false
+  seed: 42
+  validation_size: 0.1
+  train_data_cache_path: ./data/train_data_cache.pt
+  val_data_cache_path: ./data/val_data_cache.pt
+  test_data_cache_path: ./data/test_data_cache.pt
+  symspell_max_dictionary_edit_distance: 5
+  symspell_letters_per_typo: 5
+model:
+  max_token_length: 140
+  pretrained_model: distilbert-base-uncased
+  batch_size: 32
+  num_workers: 8
+  epochs: 20
+  learning_rate: 0.00002
+  # scheduler stuff
+  min_delta: 0.01
+  patience: 6
+# WandB related settings
+wandb:
+  entity: barely-passing
+  # Change The following line to something more descriptive when doing proper runs
+  project: testing
+  save_path: ./logs
+  api_key: null
+trainer:
+  # this should just be FILENAME. checkpoints are saved under save_path/checkpoints
+  checkpoint_model: null
+  # checkpoint model format. we add -{epoch:02d}-{val_loss:.2f} to this
+  checkpoint_model_format: bertweet-preprocessing
+  accelerator: cpu
+  # every fifth of a training epoch do some evaluation,
+  val_check_interval: 0.2
+  # for the parameters below, mains accept only value depending on parameter
+  # clip gradients, so we don't get weird spikes in loss due to batch size being too large
+  gradient_clip_val: 0.1
+  # how much of the training data do you want to use
+  limit_train_batches: 0.34
+  # nvidia apex stuff. If true, set optimization level to O2, and backend to apex
+  use_amp: false
+  # whether you're debugging or not for a fast run
+  fast_dev_run: true
+  # logging frequency in steps
+  log_freq: 100
+  # precision for model weights
+  precision: 32

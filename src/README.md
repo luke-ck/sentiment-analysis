@@ -1,0 +1,1 @@
+This directory contains all the python source files needed to train and ultimately produce the predictions that were submitted for the text classification challenge on Kaggle as part of the Computational Intelligence Lab in 2022.

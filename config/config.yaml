@@ -1,0 +1,64 @@
+preprocessing:
+  data_path: ./data
+  train_neg_small_file_name: train_neg.txt
+  train_pos_small_file_name: train_pos.txt
+  train_neg_full_file_name: train_neg_full.txt
+  train_pos_full_file_name: train_pos_full.txt
+  test_data: test_data.txt
+  use_full_train_data: true
+  seed: 42
+  validation_size: 0.1
+  train_data_cache_path: ./data/train_data_cache.pt
+  val_data_cache_path: ./data/val_data_cache.pt
+  test_data_cache_path: ./data/test_data_cache.pt
+  symspell_max_dictionary_edit_distance: 3
+  symspell_letters_per_typo: 2
+  clean_data_leakage_before_normalization: false
+  clean_data_leakage_after_normalization: false
+  # turn these off and on to control normalisation.
+  uncensor_swearwords: true
+  check_spelling: false
+  # note that tokenizing emojis can only be done in conjunction with normalization. The converse is not true.
+  translate_emoticons_to_emoji: false
+  normalize: true
+  # this removes data leakage with respect to paranthesis rules
+  clean_data_leakage: false
+  gibberish_detector_limit: 3.0
+model:
+  mode: "meta_learning"
+  # 128 is maximum length admissible by bertweet
+  max_token_length: 128
+  pretrained_model: vinai/bertweet-base
+  batch_size: 2048
+  num_workers: 8
+  epochs: 20
+  learning_rate: 2e-5
+  # scheduler stuff
+  min_delta: 0.01
+  patience: 3
+# WandB related settings
+wandb:
+  entity: pmlr
+  # Change The following line to something more descriptive when doing proper runs
+  project: sentiment-analysis
+  save_path: ./logs
+  api_key: 2ac1d3783ca692b1e36aa2ccdcb4087d2b662492
+trainer:
+  # this should just be FILENAME. checkpoints are saved under save_path/checkpoints
+  checkpoint_model: null
+  # checkpoint model format. we add -{epoch:02d}-{val_loss:.2f} to this
+  checkpoint_model_format: bertweet-new-preprocessing-normalization-30%-meta-learning
+  accelerator: gpu
+  # every half of a training epoch do some evaluation
+  val_check_interval: 1.0
+  # for the parameters below, mains accept only value depending on parameter
+  # clip gradients, so we don't get weird spikes in loss due to batch size being too large
+  gradient_clip_val: 1.0
+  # how much of the training data do you want to use
+  limit_train_batches: 0.3
+  # nvidia apex stuff. If true, set optimization level to O2, and backend to apex
+  use_amp: true
+  # whether you're debugging or not for a fast run
+  fast_dev_run: false
+  # logging frequency in steps
+  log_freq: 100
