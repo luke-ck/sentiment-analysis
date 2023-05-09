@@ -1,0 +1,23 @@
+transformers~=4.20.1
+tokenizers~=0.12.1
+torch~=2.0.0
+numpy>=1.22.0
+pytorch_lightning~=2.0.2
+scikit_learn~=1.0.2
+xgboost~=1.7.5
+bunch~=1.0.1
+
+# Logging
+wandb~=0.12.21
+
+tqdm~=4.64.0
+scipy~=1.8.1
+torchmetrics~=0.9.3
+
+nltk~=3.7
+emoji==0.6.0
+gibberish-detector==0.1.1
+symspellpy==6.7.6
+pandas
+matplotlib
+seaborn
