@@ -1,16 +1,16 @@
 preprocessing:
-  data_path: ./data
-  train_neg_small_file_name: train_neg.txt
-  train_pos_small_file_name: train_pos.txt
-  train_neg_full_file_name: train_neg_full.txt
-  train_pos_full_file_name: train_pos_full.txt
-  test_data: test_data.txt
+  data_path: null # ../data
+  train_neg_small_file_name: null
+  train_pos_small_file_name: null
+  train_neg_full_file_name: null
+  train_pos_full_file_name: null
+  test_data: null
   use_full_train_data: true
   seed: 42
   validation_size: 0.1
-  train_data_cache_path: ./data/train_data_cache.pt
-  val_data_cache_path: ./data/val_data_cache.pt
-  test_data_cache_path: ./data/test_data_cache.pt
+  train_data_cache_path: null
+  val_data_cache_path: null
+  test_data_cache_path: null
   symspell_max_dictionary_edit_distance: 3
   symspell_letters_per_typo: 2
   clean_data_leakage_before_normalization: false
@@ -24,8 +24,16 @@ preprocessing:
   # this removes data leakage with respect to paranthesis rules
   clean_data_leakage: false
   gibberish_detector_limit: 3.0
+active_learning:
+  predict_active_learning_logits: true
+meta_learning:
+  paths: [] # specify meta learning model paths here
+  save_train_data: True # False loads the saved train data
+  save_val_data: True # False loads the saved val data
+  random_forest: True
+  xgboost: True
 model:
-  mode: "meta_learning"
+  mode: "training"
   # 128 is maximum length admissible by bertweet
   max_token_length: 128
   pretrained_model: vinai/bertweet-base
@@ -38,16 +46,16 @@ model:
   patience: 3
 # WandB related settings
 wandb:
-  entity: pmlr
+  entity: null
   # Change The following line to something more descriptive when doing proper runs
-  project: sentiment-analysis
-  save_path: ./logs
-  api_key: 2ac1d3783ca692b1e36aa2ccdcb4087d2b662492
+  project: null
+  save_path: null
+  api_key: null
 trainer:
   # this should just be FILENAME. checkpoints are saved under save_path/checkpoints
   checkpoint_model: null
   # checkpoint model format. we add -{epoch:02d}-{val_loss:.2f} to this
-  checkpoint_model_format: bertweet-new-preprocessing-normalization-30%-meta-learning
+  checkpoint_model_format: null
   accelerator: gpu
   # every half of a training epoch do some evaluation
   val_check_interval: 1.0
