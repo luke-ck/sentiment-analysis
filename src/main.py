@@ -2,16 +2,13 @@
 
 
 import os
-
+import numpy as np
 from sklearn.metrics import accuracy_score
 from torch.utils.data import DataLoader
 
 from utils import *
-from model import BertSentimentClassifier
-from bunch import Bunch
-from sklearn.ensemble import RandomForestClassifier
-import xgboost as xgb
-import sys
+from model import BertSentimentClassifier, InferenceModule
+
 
 
 def main() -> None:
@@ -49,118 +46,121 @@ def main() -> None:
         assert checkpoint_path is not None, "No checkpoint set for tuning. Please set a checkpoint."
         model = BertSentimentClassifier.load_from_checkpoint(checkpoint_path, config=args)
         model.prepare_data()
-        # model.batch_size = 5000
-        #
-        # dataloader = DataLoader(
-        #     model.train_data,
-        #     batch_size=model.batch_size,
-        #     drop_last=False,
-        #     shuffle=False,
-        #     num_workers=model.config.model["num_workers"],
-        #     persistent_workers=True,
-        #     pin_memory=True
-        # )
-        #
-        # logits = trainer.predict(model, dataloader)
-        # torch.save(logits, "/home/lucasc/git/cil-project/data/logits4.pt")
-        logits = torch.load("/home/lucasc/git/cil-project/data/logits4.pt")
-        logits = torch.cat(logits, dim=0).reshape(-1, 1).float()
 
-        new_train_data_indices = model.select_data_from_entropy(logits)
+        if args.active_learning["predict_active_learning_logits"]:
+            model.batch_size = 5000
+            
+            dataloader = DataLoader(
+                model.train_data,
+                batch_size=model.batch_size,
+                drop_last=False,
+                shuffle=False,
+                num_workers=model.config.model["num_workers"],
+                persistent_workers=True,
+                pin_memory=True
+            )
+            
+            logits = trainer.predict(model, dataloader)
+            torch.save(logits, "../data/logits_active_learning.pt")
+        else:
+            assert os.path.isfile("../data/logits_active_learning.pt"), "No logits saved for active learning. Please set predict_active_learning_logits to True."
+            logits = torch.load("../data/logits_active_learning.pt")
+            logits = torch.cat(logits, dim=0).reshape(-1, 1).float()
 
-        subset = torch.utils.data.Subset(model.train_data, new_train_data_indices)
-        model.train_data = subset
-        new_train_data_loader = DataLoader(
-            subset,
-            batch_size=model.batch_size,
-            drop_last=False,
-            shuffle=False,
-            num_workers=model.config.model["num_workers"],
-            persistent_workers=True,
-            pin_memory=True
-        )
-        trainer.fit(model, train_dataloaders=new_train_data_loader)
+            new_train_data_indices = model.select_data_from_entropy(logits)
+
+            subset = torch.utils.data.Subset(model.train_data, new_train_data_indices)
+            model.train_data = subset
+            new_train_data_loader = DataLoader(
+                subset,
+                batch_size=model.batch_size,
+                drop_last=False,
+                shuffle=False,
+                num_workers=model.config.model["num_workers"],
+                persistent_workers=True,
+                pin_memory=True
+            )
+            trainer.fit(model, train_dataloaders=new_train_data_loader)
+
     elif mode == "meta_learning":
-        no_models = 4
+        
         models = []
-        paths = [
-            "/home/lucasc/git/cil-project/src/logs/checkpoints/bertweet-new-preprocessing-normalization-30%-active-learning-epoch=01-val_loss=0.23.ckpt",
-            "/home/lucasc/git/cil-project/src/logs/checkpoints/bertweet-new-preprocessing-normalization-30%-active-learning-1-epoch=02-val_loss=0.25.ckpt",
-            "/home/lucasc/git/cil-project/src/logs/checkpoints/bertweet-new-preprocessing-normalization-30%-active-learning-2-epoch=02-val_loss=0.27.ckpt",
-            "/home/lucasc/git/cil-project/src/logs/checkpoints/bertweet-new-preprocessing-normalization-30%-active-learning-3-epoch=02-val_loss=0.27.ckpt"
-        ]
-        for i in range(no_models):
+        paths = args.meta_learning["paths"]
+        assert len(paths) > 1, "Please set more than one path for meta learning."
+
+        for i in range(len(paths)):
             model = BertSentimentClassifier.load_from_checkpoint(paths[i], config=args)
             models.append(model)
 
         models[0].prepare_data()
-        models[1].train_data = models[0].train_data
-        models[2].train_data = models[0].train_data
+        for i in range(1, len(paths)):
+            models[i].train_data = models[0].train_data
 
         meta_learner = InferenceModule(models, trainer=trainer)
 
-        # subset = torch.utils.data.Subset(models[0].train_data, range(len(models[0].train_data)))
+        if args.meta_learning["save_train_data"]:
+            dataloader = DataLoader(
+                models[0].train_data,
+                batch_size=models[0].batch_size,
+                drop_last=False,
+                shuffle=False,
+                num_workers=models[0].config.model["num_workers"],
+                persistent_workers=True,
+                pin_memory=True
+            )
+            X_ensemble_train, y_ensemble_train = meta_learner.inference_loop(dataloader)
+            torch.save(X_ensemble_train, "../data/X_ensemble_train.pt")
+            torch.save(y_ensemble_train, "../data/y_ensemble_train.pt")
+            
+        else:
+            assert os.path.isfile("../data/X_ensemble_train.pt") and os.path.isfile("../data/y_ensemble_train.pt"), "No data saved for meta learning. Please set save_train_data to True."
 
-        # Create a small subset of your data
-        # subset_indices = np.random.choice(len(models[0].train_data), size=100, replace=False)
-        # subset = torch.utils.data.Subset(models[0].train_data, subset_indices)
+            X_ensemble_train = torch.load("../data/X_ensemble_train.pt")
+            y_ensemble_train = torch.load("../data/y_ensemble_train.pt")
 
-        # dataloader = DataLoader(
-        #     models[0].train_data,
-        #     batch_size=models[0].batch_size,
-        #     drop_last=False,
-        #     shuffle=False,
-        #     num_workers=models[0].config.model["num_workers"],
-        #     persistent_workers=True,
-        #     pin_memory=True
-        # )
+        # Train ensemble models
+        ensemble_models, ensemble_model_names = create_ensemble_classifiers(random_forest=args.meta_learning["random_forest"], xgboost=args.meta_learning["xgboost"]) # only random forest and xgboost are implemented for now
 
-        # exit(0)
-        # X_ensemble_train, y_ensemble_train = meta_learner.inference_loop(dataloader)
-        #
-        # torch.save(X_ensemble_train, "/home/lucasc/git/cil-project/data/X_ensemble_train.pt")
-        # torch.save(y_ensemble_train, "/home/lucasc/git/cil-project/data/y_ensemble_train.pt")
-        #
-        # ensemble_model_rf = RandomForestClassifier(n_estimators=100)
-        # ensemble_model_rf.fit(X_ensemble_train, y_ensemble_train)
-        #
-        # # XGBoost
-        # ensemble_model_xgb = xgb.XGBClassifier(n_estimators=100, learning_rate=0.1)
-        # ensemble_model_xgb.fit(X_ensemble_train, y_ensemble_train)
+        assert len(ensemble_model_names) > 0, "No ensemble models set. Please choose at least one."
 
-        # subset_indices = np.random.choice(len(models[0].val_data), size=100, replace=False)
-        # subset = torch.utils.data.Subset(models[0].val_data, subset_indices)
+        for ensemble in ensemble_models:
+            ensemble.fit(X_ensemble_train, y_ensemble_train)
+        
+        if args.meta_learning["save_val_data"]:
+            dataloader = DataLoader(
+                models[0].val_data,
+                batch_size=models[0].batch_size,
+                drop_last=False,
+                shuffle=False,
+                num_workers=models[0].config.model["num_workers"],
+                persistent_workers=True,
+                pin_memory=True
+            )
+            X_ensemble_val, _ = meta_learner.inference_loop(dataloader)
+            torch.save(X_ensemble_val, "../data/X_ensemble_val.pt")
+            targets = []
+            for inputs, mask, target in dataloader:
+                targets.append(target)
 
-        dataloader = DataLoader(
-            models[0].val_data,
-            batch_size=models[0].batch_size,
-            drop_last=False,
-            shuffle=False,
-            num_workers=models[0].config.model["num_workers"],
-            persistent_workers=True,
-            pin_memory=True
-        )
-        X_ensemble_val, _ = meta_learner.inference_loop(dataloader)
-        torch.save(X_ensemble_val, "/home/lucasc/git/cil-project/data/X_ensemble_val.pt")
-        targets = []
-        for inputs, mask, target in dataloader:
-            targets.append(target)
+            torch.save(targets, "../data/y_val.pt")
 
-        torch.save(targets, "/home/lucasc/git/cil-project/data/y_val.pt")
-        # rf_predict = ensemble_model_rf.predict(X_ensemble_val)
-        # xgboost_predict = ensemble_model_xgb.predict(X_ensemble_val)
-        # np.save("/home/lucasc/git/cil-project/data/rf_predict.npy", rf_predict)
-        # np.save("/home/lucasc/git/cil-project/data/xgboost_predict.npy", xgboost_predict)
+        else:
+            assert os.path.isfile("../data/X_ensemble_val.pt") and os.path.isfile("../data/y_val.pt"), "No data saved for meta learning. Please set save_val_data to True."
+            X_ensemble_val = torch.load("../data/X_ensemble_val.pt")
+            targets = torch.load("../data/y_val.pt")
 
+        targets = torch.cat(targets, dim=0).numpy()
 
-        # targets = torch.cat(targets, dim=0).numpy()
-        # print("RF accuracy: ", accuracy_score(targets, rf_predict))
-        # print("XGBoost accuracy: ", accuracy_score(targets, xgboost_predict))
-        # trainer.logger.log_metrics({"RF accuracy": accuracy_score(targets, rf_predict),
-        #                             "XGBoost accuracy": accuracy_score(targets, xgboost_predict)})
+        # Evaluate ensemble models
+        for ensemble, name in zip(ensemble_models, ensemble_model_names):
+            ensemble_predict = ensemble.predict(X_ensemble_val)
+            print(f"{name} accuracy: ", accuracy_score(targets, ensemble_predict))
+            np.save(f"../data/{name}_predict.npy", ensemble_predict)
+            trainer.logger.log_metrics({f"{name} accuracy": accuracy_score(targets, ensemble_predict)})
+
 
     else:
-        raise Exception("Only 'training' and 'testing' modes are supported currently. Please pick between these two.")
+        raise Exception("Only 'training', 'testing', 'active_learning' and 'meta_learning' modes are supported currently. Please pick between these four.")
 
 
 if __name__ == '__main__':

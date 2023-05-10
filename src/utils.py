@@ -1,16 +1,16 @@
-import json
 from bunch import Bunch
 import pathlib
 from os import path
 import os
 import yaml
+from sklearn.ensemble import RandomForestClassifier
+import xgboost as xgb
 # Weights&Biases logging
 import torch
-import numpy as np
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from tqdm import tqdm
+
 
 project_root = pathlib.Path(__file__).parent.parent.absolute()
 config_path = path.join(project_root, "config", "config.yaml")
@@ -53,75 +53,6 @@ def compute_class_probabilities(pc, model_probs, prior_probs):
         class_probs[:, i] = (pc[:, i] * model_probs[i] * prior_probs[i]) / marginal_prob
 
     return class_probs
-
-
-import torch
-import pytorch_lightning as pl
-
-
-class InferenceModule(pl.LightningModule):
-    def __init__(self, models, trainer):
-        super().__init__()
-        self.models = models
-        self._trainer = trainer
-
-    def forward(self, x, y):
-        results = torch.zeros((x.size(0), len(self.models)))
-        for i, model in enumerate(self.models):
-            results[:, i] = torch.sigmoid(model(x, y)).squeeze(1)
-        return results
-
-    def inference_loop(self, dataloader):
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        num_models = len(self.models)
-        num_samples = len(dataloader.dataset)
-        predictions = torch.zeros((num_samples, num_models))
-        labels = torch.zeros(num_samples)
-
-        # Set all models to evaluation mode
-        for model in self.models:
-            model.eval()
-
-        # Loop over the data loader and compute predictions for each model
-        with torch.no_grad(), tqdm(total=len(dataloader)) as progress_bar:
-            for i, (inputs, mask, target) in enumerate(dataloader):
-                inputs = inputs.to(device)
-                mask = mask.to(device)
-                batch_size = inputs.size(0)
-
-                outputs = self(inputs, mask)
-                for j in range(num_models):
-                    predictions[i * batch_size:(i + 1) * batch_size, j] = outputs[:, j].cpu()
-
-                labels[i * batch_size:(i + 1) * batch_size] = target.view(-1).cpu()
-                progress_bar.update(1)
-
-        return predictions, labels
-
-
-def combine_predictions(models, dataloader, logger: WandbLogger = None):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    num_models = len(models)
-    num_samples = len(dataloader.dataset)
-    predictions = torch.zeros((num_samples, num_models))
-    progress_bar = logger.ProgressBar(total=num_samples)
-    for model in models:
-        model.eval()
-
-    for inputs, mask, target in dataloader:
-        preds = torch.stack([
-            torch.sigmoid(model(inputs.to("cuda:0"), mask.to("cuda:0"))).cpu().numpy()
-            for model in models
-        ])
-
-    return np.array(combined_preds), np.array(labels)
-
-
-def ensemble_predict(models, ensemble_model, dataloader):
-    combined_preds, _ = combine_predictions(models, dataloader)
-    ensemble_preds = ensemble_model.predict(combined_preds)
-    return ensemble_preds
-
 
 def initialize_trainer(save_path: str, config: Bunch) -> Trainer:
     entity = config.wandb["entity"]
@@ -191,3 +122,25 @@ def initialize_trainer(save_path: str, config: Bunch) -> Trainer:
         logger=wandb_logger,  # W&B integration
         log_every_n_steps=log_every_n_steps,
     )
+
+def create_ensemble_classifiers(random_forest=True, xgboost=True):
+    """
+    Creates the ensemble classifiers to be used for the ensemble model.
+
+    Args:
+    - random_forest: A boolean indicating whether to use a random forest classifier.
+    - xgboost: A boolean indicating whether to use an XGBoost classifier.
+
+    Returns: A list of classifiers and a list of their names.
+
+    """
+    classifier_list = []
+    classifier_names = []
+    if random_forest:
+        classifier_list.append(RandomForestClassifier(n_estimators=100))
+        classifier_names.append("random_forest")
+    if xgboost:
+        classifier_list.append(xgb.XGBClassifier(n_estimators=100, learning_rate=0.1))
+        classifier_names.append("xgboost")
+
+    return classifier_list, classifier_names

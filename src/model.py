@@ -14,6 +14,7 @@ from transformers import AutoConfig, AutoModelForSequenceClassification, AutoMod
 from data_loader import TransformerDataLoader
 from torchmetrics import AUROC, Accuracy, ConfusionMatrix
 from torch.optim.optimizer import Optimizer
+from tqdm import tqdm
 import os
 import numpy as np
 import pandas as pd
@@ -301,6 +302,44 @@ class BertSentimentClassifier(pl.LightningModule):
 
         return indices
 
+class InferenceModule(pl.LightningModule):
+    def __init__(self, models, trainer):
+        super().__init__()
+        self.models = models
+        self._trainer = trainer
+
+    def forward(self, x, y):
+        results = torch.zeros((x.size(0), len(self.models)))
+        for i, model in enumerate(self.models):
+            results[:, i] = torch.sigmoid(model(x, y)).squeeze(1)
+        return results
+
+    def inference_loop(self, dataloader):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        num_models = len(self.models)
+        num_samples = len(dataloader.dataset)
+        predictions = torch.zeros((num_samples, num_models))
+        labels = torch.zeros(num_samples)
+
+        # Set all models to evaluation mode
+        for model in self.models:
+            model.eval()
+
+        # Loop over the data loader and compute predictions for each model
+        with torch.no_grad(), tqdm(total=len(dataloader)) as progress_bar:
+            for i, (inputs, mask, target) in enumerate(dataloader):
+                inputs = inputs.to(device)
+                mask = mask.to(device)
+                batch_size = inputs.size(0)
+
+                outputs = self(inputs, mask)
+                for j in range(num_models):
+                    predictions[i * batch_size:(i + 1) * batch_size, j] = outputs[:, j].cpu()
+
+                labels[i * batch_size:(i + 1) * batch_size] = target.view(-1).cpu()
+                progress_bar.update(1)
+
+        return predictions, labels
 
 
 
